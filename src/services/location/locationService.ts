@@ -1,6 +1,44 @@
-import Geolocation from '@react-native-community/geolocation';
 import {Platform, PermissionsAndroid, Alert} from 'react-native';
-import {check, request, PERMISSIONS, RESULTS} from 'react-native-permissions';
+
+// Web-compatible geolocation interface
+interface WebGeolocation {
+  getCurrentPosition: (
+    success: (position: GeolocationPosition) => void,
+    error?: (error: GeolocationPositionError) => void,
+    options?: PositionOptions
+  ) => void;
+  watchPosition: (
+    success: (position: GeolocationPosition) => void,
+    error?: (error: GeolocationPositionError) => void,
+    options?: PositionOptions
+  ) => number;
+  clearWatch: (watchId: number) => void;
+}
+
+// Create platform-specific geolocation
+let Geolocation: WebGeolocation;
+let permissionsCheck: any = null;
+let permissionsRequest: any = null;
+let PERMISSIONS: any = null;
+let RESULTS: any = null;
+
+if (Platform.OS === 'web') {
+  // Use browser's native geolocation API
+  Geolocation = navigator.geolocation;
+} else {
+  // Use React Native geolocation for mobile
+  try {
+    const RNGeolocation = require('@react-native-community/geolocation');
+    const permissions = require('react-native-permissions');
+    Geolocation = RNGeolocation.default || RNGeolocation;
+    permissionsCheck = permissions.check;
+    permissionsRequest = permissions.request;
+    PERMISSIONS = permissions.PERMISSIONS;
+    RESULTS = permissions.RESULTS;
+  } catch (error) {
+    console.warn('React Native geolocation not available, using fallback');
+  }
+}
 
 export interface LocationCoordinates {
   latitude: number;
@@ -51,13 +89,15 @@ class LocationService {
   }
 
   private setupGeolocation() {
-    // Configure Geolocation
-    Geolocation.setRNConfiguration({
-      skipPermissionRequests: false,
-      authorizationLevel: 'whenInUse',
-      enableBackgroundLocationUpdates: false,
-      locationProvider: 'auto',
-    });
+    // Configure Geolocation only for React Native
+    if (Platform.OS !== 'web' && Geolocation && (Geolocation as any).setRNConfiguration) {
+      (Geolocation as any).setRNConfiguration({
+        skipPermissionRequests: false,
+        authorizationLevel: 'whenInUse',
+        enableBackgroundLocationUpdates: false,
+        locationProvider: 'auto',
+      });
+    }
   }
 
   /**
@@ -65,9 +105,21 @@ class LocationService {
    */
   private async requestLocationPermission(): Promise<boolean> {
     try {
-      if (Platform.OS === 'ios') {
+      if (Platform.OS === 'web') {
+        // Web platform - permissions are handled by browser
+        if (!navigator.geolocation) {
+          console.error('[LocationService] Geolocation not supported by browser');
+          this.permissionStatus = 'denied';
+          return false;
+        }
+        
+        // For web, we'll assume permission is granted if geolocation is available
+        // The actual permission will be requested when getCurrentPosition is called
+        this.permissionStatus = 'granted';
+        return true;
+      } else if (Platform.OS === 'ios' && PERMISSIONS && RESULTS && permissionsCheck && permissionsRequest) {
         const permission = PERMISSIONS.IOS.LOCATION_WHEN_IN_USE;
-        const result = await check(permission);
+        const result = await permissionsCheck(permission);
         
         if (result === RESULTS.GRANTED) {
           this.permissionStatus = 'granted';
@@ -75,7 +127,7 @@ class LocationService {
         }
         
         if (result === RESULTS.DENIED) {
-          const requestResult = await request(permission);
+          const requestResult = await permissionsRequest(permission);
           const granted = requestResult === RESULTS.GRANTED;
           this.permissionStatus = granted ? 'granted' : 'denied';
           return granted;
@@ -83,7 +135,7 @@ class LocationService {
         
         this.permissionStatus = 'denied';
         return false;
-      } else {
+      } else if (Platform.OS === 'android') {
         // Android
         const permission = PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION;
         const hasPermission = await PermissionsAndroid.check(permission);
@@ -105,6 +157,10 @@ class LocationService {
         this.permissionStatus = isGranted ? 'granted' : 'denied';
         return isGranted;
       }
+      
+      // Fallback - assume permission granted
+      this.permissionStatus = 'granted';
+      return true;
     } catch (error) {
       console.error('[LocationService] Permission request error:', error);
       this.permissionStatus = 'denied';

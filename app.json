@@ -6,13 +6,7 @@
     "slug": "happy-hour-deals",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#1A1A2E"
-    },
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -21,7 +15,6 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1A1A2E"
       }
     },
